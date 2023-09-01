@@ -35,13 +35,7 @@ pub struct ListOfProductsOfPolynomials<F: Field> {
     pub flattened_ml_extensions: Vec<Rc<DenseMultilinearExtension<F>>>,
     raw_pointers_lookup_table: HashMap<*const DenseMultilinearExtension<F>, usize>,
 }
-/// a struct for test
-pub struct ListOfProductsOfDDPolynomials<F: Field>{
-    /// True domain for vectors
-    pub dom_size: Vec<usize>,
-    /// Finetuned polynomials
-    pub poly_list: ListOfProductsOfPolynomials<F>,
-}
+
 impl<F: Field> ListOfProductsOfPolynomials<F> {
     /// Extract the max number of multiplicands and number of variables of the list of products.
     pub fn info(&self) -> PolynomialInfo {
@@ -115,39 +109,4 @@ impl<F: Field> ListOfProductsOfPolynomials<F> {
             })
             .sum()
     }
-}
-
-impl<F: Field> ListOfProductsOfDDPolynomials<F>{
-    fn new(num_max_variable: usize)-> Self{
-        ListOfProductsOfDDPolynomials { dom_size: (Vec::new()), poly_list: ListOfProductsOfPolynomials::new(num_max_variable) }
-    }
-    fn add_product(
-        &mut self,
-        product: impl IntoIterator<Item = Rc<DenseMultilinearExtension<F>>>,
-        coefficient: F,
-    ){
-        let num_max_variable = self.poly_list.num_variables;
-        let product: Vec<Rc<DenseMultilinearExtension<F>>> = product.into_iter().collect();
-        
-        assert!(!product.is_empty());
-        let mut new_product: Vec<Rc<DenseMultilinearExtension<F>>> = Vec::with_capacity(product.len());
-        let num_variables = product[0].num_vars;
-        assert!((num_variables<=num_max_variable), "product has too much variables");
-        self.dom_size.push(num_variables);
-        for m in product {
-            assert_eq!(
-                m.num_vars, num_variables,
-                "product has a multiplicand with wrong number of variables"
-            );
-            let mut temp = m.evaluations.clone();
-            temp.resize(1 << num_max_variable, F::zero());
-            new_product.push(DenseMultilinearExtension::from_evaluations_vec(
-                num_max_variable, 
-                temp
-            ).into());
-        }
-        let new_coefficient = coefficient / F::from(1 << (num_max_variable - num_variables));
-        
-    }
-
 }

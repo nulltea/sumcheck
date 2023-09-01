@@ -30,6 +30,8 @@ pub struct ProverState<F: Field> {
     pub max_multiplicands: usize,
     /// The current round number
     pub round: usize,
+    //Vector for masked poly in sumcheck
+    //pub mask_polynomial: Vec<DenseUVPolynomial>,
 }
 
 impl<F: Field> IPForMLSumcheck<F> {
