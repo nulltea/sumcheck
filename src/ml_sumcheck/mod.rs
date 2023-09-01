@@ -8,6 +8,8 @@ use crate::rng::{Blake2s512Rng, FeedableRNG};
 use ark_ff::Field;
 use ark_std::marker::PhantomData;
 use ark_std::vec::Vec;
+use ark_poly_commit::marlin_pc::Commitment;
+use ark_test_curves::pairing::Pairing;
 
 pub mod protocol;
 
@@ -68,6 +70,17 @@ impl<F: Field> MLSumcheck<F> {
         Ok((prover_msgs, prover_state))
     }
 
+    pub fn prove_as_subprotocol_zk(
+        fs_rng: &mut impl FeedableRNG<Error = crate::Error>,
+        polynomial: &ListOfProductsOfPolynomials<F>,
+        mask_polynomial: &Vec<Vec<F>>,
+     ) -> Result<(Proof<F>, ProverState<F>), crate::Error>{
+        fs_rng.feed(&polynomial.info())?;
+        let challenge = F::rand(fs_rng);
+        let mut prover_state = IPForMLSumcheck::prover_init_zk(polynomial, mask_polynomial);
+        let mut verifier_msg = None;
+        let mut prover_msgs = Vec::with_capacity(polynomial.num_variables);
+     }
     /// verify the claimed sum using the proof
     pub fn verify(
         polynomial_info: &PolynomialInfo,
@@ -97,4 +110,8 @@ impl<F: Field> MLSumcheck<F> {
 
         IPForMLSumcheck::check_and_generate_subclaim(verifier_state, claimed_sum)
     }
+}
+
+struct ZKMLSumcheck<E: Pairing>{
+    _marker: PhantomData<E>
 }

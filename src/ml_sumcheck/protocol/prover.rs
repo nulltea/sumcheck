@@ -1,5 +1,6 @@
 //! Prover
-use crate::ml_sumcheck::data_structures::ListOfProductsOfPolynomials;
+use crate::rng::FeedableRNG;
+use crate::{ml_sumcheck::data_structures::ListOfProductsOfPolynomials, rng::Blake2s512Rng};
 use crate::ml_sumcheck::protocol::verifier::VerifierMsg;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use ark_ff::Field;
@@ -30,8 +31,8 @@ pub struct ProverState<F: Field> {
     pub max_multiplicands: usize,
     /// The current round number
     pub round: usize,
-    //Vector for masked poly in sumcheck
-    //pub mask_polynomial: Vec<DenseUVPolynomial>,
+    /// Vector for masked polynomials in sumcheck
+    pub mask_polynomials: Vec<Vec<F>>,
 }
 
 impl<F: Field> IPForMLSumcheck<F> {
@@ -59,6 +60,43 @@ impl<F: Field> IPForMLSumcheck<F> {
             .iter()
             .map(|x| x.as_ref().clone())
             .collect();
+        ProverState {
+            randomness: Vec::with_capacity(polynomial.num_variables),
+            list_of_products: polynomial.products.clone(),
+            flattened_ml_extensions,
+            num_vars: polynomial.num_variables,
+            max_multiplicands: polynomial.max_multiplicands,
+            round: 0,
+            mask_polynomials: Vec::new()
+        }
+    }
+    /// zero-knowledge of prover_init
+    pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomials: &Vec<Vec<F>>) -> ProverState<F> {
+        if polynomial.num_variables == 0 {
+            panic!("Attempt to prove a constant.")
+        }
+
+        // create a deep copy of all unique MLExtensions
+        let flattened_ml_extensions = polynomial
+            .flattened_ml_extensions
+            .iter()
+            .map(|x| x.as_ref().clone())
+            .collect();
+        // // generate random polynomials that sum 0 on hypercube
+        // let mut mask_polynomials: Vec<Vec<F>> = Vec::new();
+        // let mut rng = Blake2s512Rng::setup();
+        // let mut sum_g = F::zero();
+        // for _ in 0..polynomial.num_variables{
+        //     let mut mask_poly = Vec::<F>::with_capacity(polynomial.max_multiplicands + 1);
+        //     mask_poly.push(F::rand(&mut rng));
+        //     sum_g += mask_poly[0] + mask_poly[0];
+        //     for i in 1..polynomial.max_multiplicands + 1{
+        //         mask_poly.push(F::rand(&mut rng));
+        //         sum_g += mask_poly[i];
+        //     }
+        //     mask_polynomials.push(mask_poly);
+        // }
+        // mask_polynomials[0][0] -= sum_g / F::from(2);
 
         ProverState {
             randomness: Vec::with_capacity(polynomial.num_variables),
@@ -67,6 +105,7 @@ impl<F: Field> IPForMLSumcheck<F> {
             num_vars: polynomial.num_variables,
             max_multiplicands: polynomial.max_multiplicands,
             round: 0,
+            mask_polynomials
         }
     }
 
