@@ -8,8 +8,8 @@ use crate::rng::{Blake2s512Rng, FeedableRNG};
 use ark_ff::Field;
 use ark_std::marker::PhantomData;
 use ark_std::vec::Vec;
-use ark_poly_commit::marlin_pc::Commitment;
-use ark_test_curves::pairing::Pairing;
+
+use self::protocol::prover::ZKProverState;
 
 pub mod protocol;
 
@@ -70,16 +70,50 @@ impl<F: Field> MLSumcheck<F> {
         Ok((prover_msgs, prover_state))
     }
 
+    /// Generate 'num_variables' univariate mask polynomials with degree 'deg'.
+    /// The mask multivariate polynomial formed by univariate polynomials sums 0 on hypercube.
+    pub fn generate_mask_polynomial(
+        mask_rng: &mut impl FeedableRNG<Error = crate::Error>,
+        num_variables: usize,
+        deg: usize, 
+    ) -> Vec<Vec<F>>{
+        
+        let mut mask_polynomials: Vec<Vec<F>> = Vec::new();
+        let mut sum_g = F::zero();
+        for _ in 0..num_variables{
+            let mut mask_poly = Vec::<F>::with_capacity(deg + 1);
+            mask_poly.push(F::rand(mask_rng));
+            sum_g += mask_poly[0] + mask_poly[0];
+            for i in 1..deg + 1{
+                mask_poly.push(F::rand(mask_rng));
+                sum_g += mask_poly[i];
+            }
+            mask_polynomials.push(mask_poly);
+        }
+        mask_polynomials[0][0] -= sum_g / F::from(2);
+        mask_polynomials
+    }
+    /// This function add ZK to 'prove_as_subprotocol'. It needs mask polynomials explicitly to work.
     pub fn prove_as_subprotocol_zk(
         fs_rng: &mut impl FeedableRNG<Error = crate::Error>,
         polynomial: &ListOfProductsOfPolynomials<F>,
         mask_polynomial: &Vec<Vec<F>>,
-     ) -> Result<(Proof<F>, ProverState<F>), crate::Error>{
+     ) -> Result<(Proof<F>, ZKProverState<F>), crate::Error>{
         fs_rng.feed(&polynomial.info())?;
         let challenge = F::rand(fs_rng);
-        let mut prover_state = IPForMLSumcheck::prover_init_zk(polynomial, mask_polynomial);
+        let mut prover_state_zk = IPForMLSumcheck::prover_init_zk(polynomial, mask_polynomial, challenge);
         let mut verifier_msg = None;
         let mut prover_msgs = Vec::with_capacity(polynomial.num_variables);
+        for _ in 0..polynomial.num_variables {
+            let prover_msg = IPForMLSumcheck::prove_round_zk(&mut prover_state_zk, &verifier_msg);
+            fs_rng.feed(&prover_msg)?;
+            prover_msgs.push(prover_msg);
+            verifier_msg = Some(IPForMLSumcheck::sample_round(fs_rng));
+        }
+        if let Some(msg) = verifier_msg{
+            prover_state_zk.proverstate.randomness.push(msg.randomness);
+        }
+        Ok((prover_msgs, prover_state_zk))
      }
     /// verify the claimed sum using the proof
     pub fn verify(
@@ -112,6 +146,3 @@ impl<F: Field> MLSumcheck<F> {
     }
 }
 
-struct ZKMLSumcheck<E: Pairing>{
-    _marker: PhantomData<E>
-}
