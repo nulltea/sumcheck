@@ -266,3 +266,51 @@ fn test_shared_reference() {
         "wrong subclaim"
     );
 }
+
+
+fn test_polynomial_as_subprotocol_zk(
+    nv: usize,
+    num_multiplicands_range: (usize, usize),
+    num_products: usize,
+    prover_rng: &mut impl FeedableRNG<Error = crate::Error>,
+    verifier_rng: &mut impl FeedableRNG<Error = crate::Error>,
+) {
+    let mut rng = test_rng();
+    let (poly, asserted_sum) =
+        random_list_of_products::<Fr, _>(nv, num_multiplicands_range, num_products, &mut rng);
+    let poly_info = poly.info();
+    let mask_polynomials = MLSumcheck::<Fr>::generate_mask_polynomial(&mut rng, poly_info.num_variables, poly_info.max_multiplicands);
+    let challenge = Fr::rand(&mut rng);
+    let (proof, _prover_state) =
+        MLSumcheck::prove_as_subprotocol_zk(prover_rng, &poly, &mask_polynomials, challenge).expect("fail to prove");
+    let subclaim =
+        MLSumcheck::verify_as_subprotocol(verifier_rng, &poly_info, asserted_sum, &proof)
+            .expect("fail to verify");
+    assert!(
+        poly.evaluate(&subclaim.point) + challenge * IPForMLSumcheck::get_masks_evaluation(&mask_polynomials, &subclaim.point) == subclaim.expected_evaluation,
+        "wrong subclaim"
+    );
+}
+#[test]
+fn test_zk_sumcheck(){
+    let nv = 12;
+    let num_multiplicands_range = (4, 9);
+    let num_products = 5;
+
+    for _ in 0..10 {
+        test_polynomial(nv, num_multiplicands_range, num_products);
+        test_protocol(nv, num_multiplicands_range, num_products);
+
+        let mut prover_rng = Blake2s512Rng::setup();
+        prover_rng.feed(b"Test Trivial Works").unwrap();
+        let mut verifier_rng = Blake2s512Rng::setup();
+        verifier_rng.feed(b"Test Trivial Works").unwrap();
+        test_polynomial_as_subprotocol_zk(
+            nv,
+            num_multiplicands_range,
+            num_products,
+            &mut prover_rng,
+            &mut verifier_rng,
+        )
+    }
+}

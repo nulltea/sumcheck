@@ -95,7 +95,7 @@ impl<F: Field> IPForMLSumcheck<F> {
         partial_sum.reverse();
         partial_sum.push(F::zero());
         ZKProverState {
-            proverstate: IPForMLSumcheck::prover_init(polynomial),
+            proverstate: Self::prover_init(polynomial),
             mask_polynomials: mask_polynomials.clone(),
             challenge,
             front_partial_sum: F::zero(),
@@ -197,25 +197,34 @@ impl<F: Field> IPForMLSumcheck<F> {
         evaluation
     }
 
+     /// get evaluation of multivariate polynomial formed by univariate polynomials on specific point 
+    pub fn get_masks_evaluation(mask_polynomials: &Vec<Vec<F>>, points: &Vec<F>) -> F{
+        let mut sum = F::zero();
+        for (poly, point) in mask_polynomials.iter().zip(points){
+            sum += Self::get_mask_evaluation(poly, *point);
+        }
+        sum
+    }
     /// ZK prove round
     pub fn prove_round_zk( 
         prover_state_zk: &mut ZKProverState<F>,
         v_msg: &Option<VerifierMsg<F>>) -> ProverMsg<F>{
-        let message = IPForMLSumcheck::prove_round(&mut prover_state_zk.proverstate, v_msg);// prover_state round += 1
+        let message = Self::prove_round(&mut prover_state_zk.proverstate, v_msg);// prover_state round += 1
         let i = prover_state_zk.proverstate.round;
         let nv = prover_state_zk.proverstate.num_vars;
         let deg = prover_state_zk.proverstate.max_multiplicands;
         let challenge = prover_state_zk.challenge;
         let mut sum = vec![F::zero(); deg + 1];
         if let Some(msg) = v_msg{
-            prover_state_zk.front_partial_sum += IPForMLSumcheck::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 2], msg.randomness);
+            prover_state_zk.front_partial_sum += Self::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 2], msg.randomness);
         }
         for j in 0..deg + 1{
-            sum[j] = IPForMLSumcheck::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 1], F::from(j as u64)) + prover_state_zk.front_partial_sum;
+            sum[j] = Self::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 1], F::from(j as u64)) + prover_state_zk.front_partial_sum;
             sum[j] *= F::from(1u128 << (nv - i));
             sum[j] += prover_state_zk.tail_partial_sum[i];
             sum[j] *= challenge;
         }
+        
         ProverMsg{
             evaluations: message.evaluations.iter().zip(sum.iter()).map(|(msg, sum)| *msg + sum).collect()
         }
