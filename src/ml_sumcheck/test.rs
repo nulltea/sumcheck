@@ -314,3 +314,27 @@ fn test_zk_sumcheck(){
         )
     }
 }
+
+#[test]
+fn test_zk_sumcheck_fail(){
+    let nv = 12;
+    let num_multiplicands_range = (4, 9);
+    let num_products = 5;
+
+    for _ in 0..10 {
+        test_polynomial(nv, num_multiplicands_range, num_products);
+        test_protocol(nv, num_multiplicands_range, num_products);
+
+        let mut prover_rng = Blake2s512Rng::setup();
+        prover_rng.feed(b"Test Trivial Works").unwrap();
+        let mut verifier_rng = Blake2s512Rng::setup();
+        verifier_rng.feed(b"Test Trivial Fails").unwrap();
+        test_polynomial_as_subprotocol_zk(
+            nv,
+            num_multiplicands_range,
+            num_products,
+            &mut prover_rng,
+            &mut verifier_rng,
+        )
+    }
+}

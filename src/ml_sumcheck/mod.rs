@@ -6,6 +6,8 @@ use crate::ml_sumcheck::protocol::verifier::SubClaim;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use crate::rng::{Blake2s512Rng, FeedableRNG};
 use ark_ff::Field;
+use ark_poly::DenseUVPolynomial;
+use ark_poly::univariate::DensePolynomial;
 use ark_std::marker::PhantomData;
 use ark_std::rand::RngCore;
 use ark_std::vec::Vec;
@@ -78,8 +80,8 @@ impl<F: Field> MLSumcheck<F> {
         mask_rng: &mut impl RngCore,
         num_variables: usize,
         deg: usize, 
-    ) -> Vec<Vec<F>>{
-        let mut mask_polynomials: Vec<Vec<F>> = Vec::new();
+    ) -> Vec<DensePolynomial<F>>{
+        let mut mask_polynomials: Vec<DensePolynomial<F>> = Vec::new();
         let mut sum_g = F::zero();
         for _ in 0..num_variables{
             let mut mask_poly = Vec::<F>::with_capacity(deg + 1);
@@ -89,9 +91,9 @@ impl<F: Field> MLSumcheck<F> {
                 mask_poly.push(F::rand(mask_rng));
                 sum_g += mask_poly[i];
             }
-            mask_polynomials.push(mask_poly);
+            mask_polynomials.push(DensePolynomial::from_coefficients_vec(mask_poly));
         }
-        mask_polynomials[0][0] -= sum_g / F::from(2);
+        mask_polynomials[0][0] -= sum_g / F::from(2u8);
         mask_polynomials
     }
     
@@ -99,7 +101,7 @@ impl<F: Field> MLSumcheck<F> {
     pub fn prove_as_subprotocol_zk(
         fs_rng: &mut impl FeedableRNG<Error = crate::Error>,
         polynomial: &ListOfProductsOfPolynomials<F>,
-        mask_polynomial: &Vec<Vec<F>>,
+        mask_polynomial: &Vec<DensePolynomial<F>>,
         challenge: F,
      ) -> Result<(Proof<F>, ZKProverState<F>), crate::Error>{
         fs_rng.feed(&polynomial.info())?;
@@ -113,7 +115,7 @@ impl<F: Field> MLSumcheck<F> {
             verifier_msg = Some(IPForMLSumcheck::sample_round(fs_rng));
         }
         if let Some(msg) = verifier_msg{
-            prover_state_zk.proverstate.randomness.push(msg.randomness);
+            prover_state_zk.prover_state.randomness.push(msg.randomness);
         }
         Ok((prover_msgs, prover_state_zk))
      }
