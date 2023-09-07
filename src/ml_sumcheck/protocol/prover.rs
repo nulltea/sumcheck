@@ -84,10 +84,18 @@ impl<F: Field> IPForMLSumcheck<F> {
         
         let degree = polynomial.max_multiplicands;
         let num_variables = polynomial.num_variables;
-        let mut univariate_mask_polynomials = vec![vec![F::zero(); degree]; num_variables];
+        let mut univariate_mask_polynomials = vec![vec![F::zero(); degree + 1]; num_variables];
         for (coef, term) in mask_polynomial.terms(){
-            if term.len() != 1 {panic!("Invalid mask polynomial")}
-            univariate_mask_polynomials[term[0].0][term[0].1] = *coef;
+            if term.len() > 1 { 
+                panic!("Invalid mask polynomial") 
+            }
+            else if term.len() == 1
+            {
+                univariate_mask_polynomials[term[0].0][term[0].1] = *coef;
+            }
+            else {
+                univariate_mask_polynomials[0][0] = *coef;
+            }
         }
         let mut partial_sum: Vec<F> = Vec::new();
         let mut sum = F::zero();

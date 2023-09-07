@@ -321,7 +321,9 @@ pub(crate) fn generate_mask_polynomial<F: Field>(
     for (var, variables_coef) in mask_polynomials.iter().enumerate(){
         variables_coef.iter().enumerate().for_each(|(degree, coef)| terms.push((coef.clone(), SparseTerm::new(vec![(var, degree)]))));
     }
+  
     SparsePolynomial::from_coefficients_vec(num_variables, terms)
+   
 }
 
 
