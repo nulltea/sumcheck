@@ -3,7 +3,7 @@ use crate::ml_sumcheck::data_structures::ListOfProductsOfPolynomials;
 use crate::ml_sumcheck::protocol::verifier::VerifierMsg;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use ark_ff::Field;
-use ark_poly::{DenseMultilinearExtension, MultilinearExtension, univariate::DensePolynomial};
+use ark_poly::{DenseMultilinearExtension, MultilinearExtension, multivariate::{SparsePolynomial, SparseTerm}, DenseMVPolynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_iter_mut, vec::Vec};
 #[cfg(feature = "parallel")]
@@ -36,7 +36,7 @@ pub struct ZKProverState<F: Field>{
     /// Non-ZK Prover State
     pub prover_state: ProverState<F>,
     /// Masking polynomials from Libra (2019-317)
-    pub mask_polynomials: Vec<DensePolynomial<F>>,
+    pub mask_polynomials: Vec<Vec<F>>,
     /// ZK challenge
     pub challenge: F,
     /// Partial sum from front
@@ -80,12 +80,18 @@ impl<F: Field> IPForMLSumcheck<F> {
         }
     }
     /// zero-knowledge of prover_init
-    pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomials: &Vec<DensePolynomial<F>>, challenge: F) -> ZKProverState<F> {
+    pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomial: &SparsePolynomial<F, SparseTerm>, challenge: F) -> ZKProverState<F> {
         
-        
+        let degree = polynomial.max_multiplicands;
+        let num_variables = polynomial.num_variables;
+        let mut univariate_mask_polynomials = vec![vec![F::zero(); degree]; num_variables];
+        for (coef, term) in mask_polynomial.terms(){
+            if term.len() != 1 {panic!("Invalid mask polynomial")}
+            univariate_mask_polynomials[term[0].0][term[0].1] = *coef;
+        }
         let mut partial_sum: Vec<F> = Vec::new();
         let mut sum = F::zero();
-        for (count, mask_poly) in mask_polynomials.iter().rev().enumerate(){
+        for (count, mask_poly) in univariate_mask_polynomials.iter().rev().enumerate(){
             sum += mask_poly[0] + mask_poly[0];
             for i in 1..polynomial.max_multiplicands + 1{
                 sum += mask_poly[i];
@@ -96,7 +102,7 @@ impl<F: Field> IPForMLSumcheck<F> {
         partial_sum.push(F::zero());
         ZKProverState {
             prover_state: Self::prover_init(polynomial),
-            mask_polynomials: mask_polynomials.clone(),
+            mask_polynomials: univariate_mask_polynomials,
             challenge,
             front_partial_sum: F::zero(),
             tail_partial_sum: partial_sum
@@ -188,7 +194,7 @@ impl<F: Field> IPForMLSumcheck<F> {
     }
 
     /// get evaluation of univariate polynomial on specific point 
-    pub fn get_mask_evaluation(mask_polynomial: &DensePolynomial<F>, point: F) -> F{
+    pub fn get_mask_evaluation(mask_polynomial: &Vec<F>, point: F) -> F{
         let mut evaluation = F::zero();
         for coef in mask_polynomial.iter().rev(){
             evaluation *= point;
@@ -197,14 +203,6 @@ impl<F: Field> IPForMLSumcheck<F> {
         evaluation
     }
 
-     /// get evaluation of multivariate polynomial formed by univariate polynomials on specific point 
-    pub fn get_masks_evaluation(mask_polynomials: &Vec<DensePolynomial<F>>, points: &Vec<F>) -> F{
-        let mut sum = F::zero();
-        for (poly, point) in mask_polynomials.iter().zip(points){
-            sum += Self::get_mask_evaluation(poly, *point);
-        }
-        sum
-    }
     /// ZK prove round
     pub fn prove_round_zk( 
         prover_state_zk: &mut ZKProverState<F>,

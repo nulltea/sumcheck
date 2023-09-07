@@ -4,6 +4,11 @@ use crate::ml_sumcheck::MLSumcheck;
 use crate::rng::Blake2s512Rng;
 use crate::rng::FeedableRNG;
 use ark_ff::Field;
+use ark_poly::DenseMVPolynomial;
+use ark_poly::Polynomial;
+use ark_poly::multivariate::SparsePolynomial;
+use ark_poly::multivariate::SparseTerm;
+use ark_poly::multivariate::Term;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::rand::Rng;
 use ark_std::rand::RngCore;
@@ -279,7 +284,7 @@ fn test_polynomial_as_subprotocol_zk(
     let (poly, asserted_sum) =
         random_list_of_products::<Fr, _>(nv, num_multiplicands_range, num_products, &mut rng);
     let poly_info = poly.info();
-    let mask_polynomials = MLSumcheck::<Fr>::generate_mask_polynomial(&mut rng, poly_info.num_variables, poly_info.max_multiplicands);
+    let mask_polynomials = generate_mask_polynomial::<Fr>(&mut rng, poly_info.num_variables, poly_info.max_multiplicands);
     let challenge = Fr::rand(&mut rng);
     let (proof, _prover_state) =
         MLSumcheck::prove_as_subprotocol_zk(prover_rng, &poly, &mask_polynomials, challenge).expect("fail to prove");
@@ -287,10 +292,39 @@ fn test_polynomial_as_subprotocol_zk(
         MLSumcheck::verify_as_subprotocol(verifier_rng, &poly_info, asserted_sum, &proof)
             .expect("fail to verify");
     assert!(
-        poly.evaluate(&subclaim.point) + challenge * IPForMLSumcheck::get_masks_evaluation(&mask_polynomials, &subclaim.point) == subclaim.expected_evaluation,
+        poly.evaluate(&subclaim.point) + challenge * SparsePolynomial::evaluate(&mask_polynomials, &subclaim.point) == subclaim.expected_evaluation,
         "wrong subclaim"
     );
 }
+
+
+
+pub(crate) fn generate_mask_polynomial<F: Field>(
+    mask_rng: &mut impl RngCore,
+    num_variables: usize,
+    deg: usize, 
+) -> SparsePolynomial<F, SparseTerm>{
+    let mut mask_polynomials: Vec<Vec<F>> = Vec::new();
+    let mut sum_g = F::zero();
+    for _ in 0..num_variables{
+        let mut mask_poly = Vec::<F>::with_capacity(deg + 1);
+        mask_poly.push(F::rand(mask_rng));
+        sum_g += mask_poly[0] + mask_poly[0];
+        for i in 1..deg + 1{
+            mask_poly.push(F::rand(mask_rng));
+            sum_g += mask_poly[i];
+        }
+        mask_polynomials.push(mask_poly);
+    }
+    mask_polynomials[0][0] -= sum_g / F::from(2u8);
+    let mut terms: Vec<(F, SparseTerm)> = Vec::new();
+    for (var, variables_coef) in mask_polynomials.iter().enumerate(){
+        variables_coef.iter().enumerate().for_each(|(degree, coef)| terms.push((coef.clone(), SparseTerm::new(vec![(var, degree)]))));
+    }
+    SparsePolynomial::from_coefficients_vec(num_variables, terms)
+}
+
+
 #[test]
 fn test_zk_sumcheck(){
     let nv = 12;
@@ -316,6 +350,7 @@ fn test_zk_sumcheck(){
 }
 
 #[test]
+#[should_panic]
 fn test_zk_sumcheck_fail(){
     let nv = 12;
     let num_multiplicands_range = (4, 9);

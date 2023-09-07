@@ -6,10 +6,8 @@ use crate::ml_sumcheck::protocol::verifier::SubClaim;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use crate::rng::{Blake2s512Rng, FeedableRNG};
 use ark_ff::Field;
-use ark_poly::DenseUVPolynomial;
-use ark_poly::univariate::DensePolynomial;
+use ark_poly::multivariate::{SparsePolynomial, SparseTerm};
 use ark_std::marker::PhantomData;
-use ark_std::rand::RngCore;
 use ark_std::vec::Vec;
 
 use self::protocol::prover::ZKProverState;
@@ -74,34 +72,13 @@ impl<F: Field> MLSumcheck<F> {
         Ok((prover_msgs, prover_state))
     }
 
-    /// Generate 'num_variables' univariate mask polynomials with degree 'deg'.
-    /// The mask multivariate polynomial formed by univariate polynomials sums 0 on hypercube.
-    pub fn generate_mask_polynomial(
-        mask_rng: &mut impl RngCore,
-        num_variables: usize,
-        deg: usize, 
-    ) -> Vec<DensePolynomial<F>>{
-        let mut mask_polynomials: Vec<DensePolynomial<F>> = Vec::new();
-        let mut sum_g = F::zero();
-        for _ in 0..num_variables{
-            let mut mask_poly = Vec::<F>::with_capacity(deg + 1);
-            mask_poly.push(F::rand(mask_rng));
-            sum_g += mask_poly[0] + mask_poly[0];
-            for i in 1..deg + 1{
-                mask_poly.push(F::rand(mask_rng));
-                sum_g += mask_poly[i];
-            }
-            mask_polynomials.push(DensePolynomial::from_coefficients_vec(mask_poly));
-        }
-        mask_polynomials[0][0] -= sum_g / F::from(2u8);
-        mask_polynomials
-    }
+    
     
     /// This function add ZK to 'prove_as_subprotocol'. It needs mask polynomials and challenge explicitly to work.
     pub fn prove_as_subprotocol_zk(
         fs_rng: &mut impl FeedableRNG<Error = crate::Error>,
         polynomial: &ListOfProductsOfPolynomials<F>,
-        mask_polynomial: &Vec<DensePolynomial<F>>,
+        mask_polynomial: &SparsePolynomial<F, SparseTerm>,
         challenge: F,
      ) -> Result<(Proof<F>, ZKProverState<F>), crate::Error>{
         fs_rng.feed(&polynomial.info())?;

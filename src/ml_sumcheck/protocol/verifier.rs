@@ -120,6 +120,7 @@ impl<F: Field> IPForMLSumcheck<F> {
         })
     }
 
+
     /// simulate a verifier message without doing verification
     ///
     /// Given the same calling context, `random_oracle_round` output exactly the same message as
