@@ -6,7 +6,7 @@ use crate::ml_sumcheck::protocol::verifier::SubClaim;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use crate::rng::{Blake2s512Rng, FeedableRNG};
 use ark_ff::Field;
-use ark_poly::multivariate::{SparsePolynomial, SparseTerm};
+use ark_poly::DenseMVPolynomial;
 use ark_std::marker::PhantomData;
 use ark_std::vec::Vec;
 
@@ -78,7 +78,7 @@ impl<F: Field> MLSumcheck<F> {
     pub fn prove_as_subprotocol_zk(
         fs_rng: &mut impl FeedableRNG<Error = crate::Error>,
         polynomial: &ListOfProductsOfPolynomials<F>,
-        mask_polynomial: &SparsePolynomial<F, SparseTerm>,
+        mask_polynomial: &impl DenseMVPolynomial<F>,
         challenge: F,
      ) -> Result<(Proof<F>, ZKProverState<F>), crate::Error>{
         fs_rng.feed(&polynomial.info())?;

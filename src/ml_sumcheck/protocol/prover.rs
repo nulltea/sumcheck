@@ -3,7 +3,7 @@ use crate::ml_sumcheck::data_structures::ListOfProductsOfPolynomials;
 use crate::ml_sumcheck::protocol::verifier::VerifierMsg;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use ark_ff::Field;
-use ark_poly::{DenseMultilinearExtension, MultilinearExtension, multivariate::{SparsePolynomial, SparseTerm}, DenseMVPolynomial};
+use ark_poly::{DenseMultilinearExtension, MultilinearExtension, DenseMVPolynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_iter_mut, vec::Vec};
 #[cfg(feature = "parallel")]
@@ -80,7 +80,7 @@ impl<F: Field> IPForMLSumcheck<F> {
         }
     }
     /// zero-knowledge of prover_init
-    pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomial: &SparsePolynomial<F, SparseTerm>, challenge: F) -> ZKProverState<F> {
+    pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomial: &impl DenseMVPolynomial<F>, challenge: F) -> ZKProverState<F> {
         
         let degree = polynomial.max_multiplicands;
         let num_variables = polynomial.num_variables;
