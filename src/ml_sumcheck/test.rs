@@ -289,16 +289,20 @@ fn test_polynomial_as_subprotocol_zk(
         poly_info.max_multiplicands,
     );
     let challenge = Fr::rand(&mut rng);
-    let (proof, _prover_state) =
+    let (proof, prover_state) =
         MLSumcheck::prove_as_subprotocol_zk(prover_rng, &poly, &mask_polynomials, challenge)
             .expect("fail to prove");
-    let subclaim =
-        MLSumcheck::verify_as_subprotocol(verifier_rng, &poly_info, asserted_sum, &proof)
-            .expect("fail to verify");
+    let subclaim = MLSumcheck::verify_as_subprotocol_zk(
+        verifier_rng,
+        &poly_info,
+        asserted_sum,
+        &proof,
+        challenge,
+        SparsePolynomial::evaluate(&mask_polynomials, &prover_state.prover_state.randomness),
+    )
+    .expect("fail to verify");
     assert!(
-        poly.evaluate(&subclaim.point)
-            + challenge * SparsePolynomial::evaluate(&mask_polynomials, &subclaim.point)
-            == subclaim.expected_evaluation,
+        poly.evaluate(&subclaim.point) == subclaim.expected_evaluation,
         "wrong subclaim"
     );
 }
