@@ -136,7 +136,7 @@ impl<F: Field> MLSumcheck<F> {
         let mut sub_claim =
             match Self::verify_as_subprotocol(fs_rng, polynomial_info, claimed_sum, proof) {
                 Ok(sub_claim) => sub_claim,
-                Err(e) => return e,
+                Err(e) => return Err(e),
             };
         sub_claim.expected_evaluation -= challenge * mask_value;
         Ok(sub_claim)
