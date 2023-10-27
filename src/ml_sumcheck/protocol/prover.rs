@@ -82,7 +82,7 @@ impl<F: Field> IPForMLSumcheck<F> {
     /// zero-knowledge of prover_init
     pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomial: &impl DenseMVPolynomial<F>, challenge: F) -> ZKProverState<F> {
         
-        let degree = polynomial.max_multiplicands;
+        let degree = mask_polynomial.degree();
         let num_variables = polynomial.num_variables;
         let mut univariate_mask_polynomials = vec![vec![F::zero(); degree + 1]; num_variables];
         for (coef, term) in mask_polynomial.terms(){
@@ -101,7 +101,7 @@ impl<F: Field> IPForMLSumcheck<F> {
         let mut sum = F::zero();
         for (count, mask_poly) in univariate_mask_polynomials.iter().rev().enumerate(){
             sum += mask_poly[0] + mask_poly[0];
-            for i in 1..polynomial.max_multiplicands + 1{
+            for i in 1..degree + 1{
                 sum += mask_poly[i];
             }
             partial_sum.push(sum * F::from(1u128 << count));
