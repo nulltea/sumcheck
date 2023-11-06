@@ -3,7 +3,7 @@ use crate::ml_sumcheck::data_structures::ListOfProductsOfPolynomials;
 use crate::ml_sumcheck::protocol::verifier::VerifierMsg;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use ark_ff::Field;
-use ark_poly::{DenseMultilinearExtension, MultilinearExtension, DenseMVPolynomial};
+use ark_poly::{DenseMVPolynomial, DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_iter_mut, vec::Vec};
 #[cfg(feature = "parallel")]
@@ -16,6 +16,7 @@ pub struct ProverMsg<F: Field> {
     pub(crate) evaluations: Vec<F>,
 }
 /// Prover State
+#[derive(Clone)]
 pub struct ProverState<F: Field> {
     /// sampled randomness given by the verifier
     pub randomness: Vec<F>,
@@ -32,7 +33,7 @@ pub struct ProverState<F: Field> {
     pub round: usize,
 }
 /// Prover State for ZK sumcheck
-pub struct ZKProverState<F: Field>{
+pub struct ZKProverState<F: Field> {
     /// Non-ZK Prover State
     pub prover_state: ProverState<F>,
     /// Masking polynomials from Libra (2019-317)
@@ -42,7 +43,7 @@ pub struct ZKProverState<F: Field>{
     /// Partial sum from front
     pub front_partial_sum: F,
     /// Partial sum from end
-    pub tail_partial_sum: Vec<F>
+    pub tail_partial_sum: Vec<F>,
 }
 
 impl<F: Field> IPForMLSumcheck<F> {
@@ -80,28 +81,28 @@ impl<F: Field> IPForMLSumcheck<F> {
         }
     }
     /// zero-knowledge of prover_init
-    pub fn prover_init_zk(polynomial: &ListOfProductsOfPolynomials<F>, mask_polynomial: &impl DenseMVPolynomial<F>, challenge: F) -> ZKProverState<F> {
-        
+    pub fn prover_init_zk(
+        polynomial: &ListOfProductsOfPolynomials<F>,
+        mask_polynomial: &impl DenseMVPolynomial<F>,
+        challenge: F,
+    ) -> ZKProverState<F> {
         let degree = mask_polynomial.degree();
         let num_variables = polynomial.num_variables;
         let mut univariate_mask_polynomials = vec![vec![F::zero(); degree + 1]; num_variables];
-        for (coef, term) in mask_polynomial.terms(){
-            if term.len() > 1 { 
-                panic!("Invalid mask polynomial") 
-            }
-            else if term.len() == 1
-            {
+        for (coef, term) in mask_polynomial.terms() {
+            if term.len() > 1 {
+                panic!("Invalid mask polynomial")
+            } else if term.len() == 1 {
                 univariate_mask_polynomials[term[0].0][term[0].1] = *coef;
-            }
-            else {
+            } else {
                 univariate_mask_polynomials[0][0] = *coef;
             }
         }
         let mut partial_sum: Vec<F> = Vec::new();
         let mut sum = F::zero();
-        for (count, mask_poly) in univariate_mask_polynomials.iter().rev().enumerate(){
+        for (count, mask_poly) in univariate_mask_polynomials.iter().rev().enumerate() {
             sum += mask_poly[0] + mask_poly[0];
-            for i in 1..degree + 1{
+            for i in 1..degree + 1 {
                 sum += mask_poly[i];
             }
             partial_sum.push(sum * F::from(1u128 << count));
@@ -113,7 +114,7 @@ impl<F: Field> IPForMLSumcheck<F> {
             mask_polynomials: univariate_mask_polynomials,
             challenge,
             front_partial_sum: F::zero(),
-            tail_partial_sum: partial_sum
+            tail_partial_sum: partial_sum,
         }
     }
 
@@ -136,6 +137,13 @@ impl<F: Field> IPForMLSumcheck<F> {
             cfg_iter_mut!(prover_state.flattened_ml_extensions).for_each(|multiplicand| {
                 *multiplicand = multiplicand.fix_variables(&[r]);
             });
+
+            if prover_state.round == prover_state.num_vars {
+                prover_state.round += 1;
+                return ProverMsg {
+                    evaluations: Vec::new(),
+                };
+            }
         } else if prover_state.round > 0 {
             panic!("verifier message is empty");
         }
@@ -201,38 +209,48 @@ impl<F: Field> IPForMLSumcheck<F> {
         }
     }
 
-    /// get evaluation of univariate polynomial on specific point 
-    pub fn get_mask_evaluation(mask_polynomial: &Vec<F>, point: F) -> F{
+    /// get evaluation of univariate polynomial on specific point
+    pub fn get_mask_evaluation(mask_polynomial: &Vec<F>, point: F) -> F {
         let mut evaluation = F::zero();
-        for coef in mask_polynomial.iter().rev(){
+        for coef in mask_polynomial.iter().rev() {
             evaluation *= point;
             evaluation += coef;
-        }    
+        }
         evaluation
     }
 
     /// ZK prove round
-    pub fn prove_round_zk( 
+    pub fn prove_round_zk(
         prover_state_zk: &mut ZKProverState<F>,
-        v_msg: &Option<VerifierMsg<F>>) -> ProverMsg<F>{
-        let message = Self::prove_round(&mut prover_state_zk.prover_state, v_msg);// prover_state round += 1
+        v_msg: &Option<VerifierMsg<F>>,
+    ) -> ProverMsg<F> {
+        let message = Self::prove_round(&mut prover_state_zk.prover_state, v_msg); // prover_state round += 1
         let i = prover_state_zk.prover_state.round;
         let nv = prover_state_zk.prover_state.num_vars;
         let deg = prover_state_zk.prover_state.max_multiplicands;
         let challenge = prover_state_zk.challenge;
         let mut sum = vec![F::zero(); deg + 1];
-        if let Some(msg) = v_msg{
-            prover_state_zk.front_partial_sum += Self::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 2], msg.randomness);
+        if let Some(msg) = v_msg {
+            prover_state_zk.front_partial_sum +=
+                Self::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 2], msg.randomness);
         }
-        for j in 0..deg + 1{
-            sum[j] = Self::get_mask_evaluation(&prover_state_zk.mask_polynomials[i - 1], F::from(j as u64)) + prover_state_zk.front_partial_sum;
+        for j in 0..deg + 1 {
+            sum[j] = Self::get_mask_evaluation(
+                &prover_state_zk.mask_polynomials[i - 1],
+                F::from(j as u64),
+            ) + prover_state_zk.front_partial_sum;
             sum[j] *= F::from(1u128 << (nv - i));
             sum[j] += prover_state_zk.tail_partial_sum[i];
             sum[j] *= challenge;
         }
-        
-        ProverMsg{
-            evaluations: message.evaluations.iter().zip(sum.iter()).map(|(msg, sum)| *msg + sum).collect()
+
+        ProverMsg {
+            evaluations: message
+                .evaluations
+                .iter()
+                .zip(sum.iter())
+                .map(|(msg, sum)| *msg + sum)
+                .collect(),
         }
     }
 }

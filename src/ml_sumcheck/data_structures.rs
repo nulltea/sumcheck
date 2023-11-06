@@ -1,6 +1,5 @@
 //! Defines the data structures used by the `MLSumcheck` protocol.
 
-
 use ark_ff::Field;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

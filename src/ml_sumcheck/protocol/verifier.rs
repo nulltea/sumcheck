@@ -7,7 +7,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::RngCore;
 use ark_std::vec::Vec;
 
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize, Debug)]
 /// Verifier Message
 pub struct VerifierMsg<F: Field> {
     /// randomness sampled by verifier
@@ -119,7 +119,6 @@ impl<F: Field> IPForMLSumcheck<F> {
             expected_evaluation: expected,
         })
     }
-
 
     /// simulate a verifier message without doing verification
     ///

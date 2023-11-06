@@ -1,3 +1,5 @@
+// use core::num;
+
 use crate::ml_sumcheck::data_structures::ListOfProductsOfPolynomials;
 use crate::ml_sumcheck::protocol::IPForMLSumcheck;
 use crate::ml_sumcheck::MLSumcheck;
@@ -10,12 +12,17 @@ use ark_poly::multivariate::Term;
 use ark_poly::DenseMVPolynomial;
 use ark_poly::Polynomial;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use ark_std::cmp::max;
 use ark_std::rand::Rng;
 use ark_std::rand::RngCore;
 use ark_std::rc::Rc;
 use ark_std::vec::Vec;
 use ark_std::{test_rng, UniformRand};
 use ark_test_curves::bls12_381::Fr;
+
+// use super::protocol::prover;
+use super::protocol::prover::ProverState;
+use super::protocol::PolynomialInfo;
 
 fn random_product<F: Field, R: RngCore>(
     nv: usize,
@@ -66,6 +73,44 @@ fn random_list_of_products<F: Field, R: RngCore>(
     (poly, sum)
 }
 
+fn random_list_of_distributed_products<F: Field, R: RngCore>(
+    nv: usize,
+    num_multiplicands_range: (usize, usize),
+    num_products: usize,
+    log_num_parties: usize,
+    rng: &mut R,
+) -> (Vec<ListOfProductsOfPolynomials<F>>, F, PolynomialInfo) {
+    let mut sum = F::zero();
+    // let mut poly = ListOfProductsOfPolynomials::new(nv);
+    let mut distributed_poly =
+        vec![ListOfProductsOfPolynomials::new(nv - log_num_parties); 1 << log_num_parties];
+    for _ in 0..num_products {
+        let num_multiplicands = rng.gen_range(num_multiplicands_range.0..num_multiplicands_range.1);
+        let coefficient = F::rand(rng);
+        for i in 0..1 << log_num_parties {
+            let (product, product_sum) =
+                random_product(nv - log_num_parties, num_multiplicands, rng);
+
+            distributed_poly[i].add_product(product.into_iter(), coefficient);
+            sum += product_sum * coefficient;
+        }
+    }
+
+    let mut poly_info = PolynomialInfo {
+        max_multiplicands: 0,
+        num_variables: nv,
+    };
+
+    for i in 0..1 << log_num_parties {
+        poly_info.max_multiplicands = max(
+            poly_info.max_multiplicands,
+            distributed_poly[i].info().max_multiplicands,
+        );
+    }
+
+    (distributed_poly, sum, poly_info)
+}
+
 fn test_polynomial(nv: usize, num_multiplicands_range: (usize, usize), num_products: usize) {
     let mut rng = test_rng();
     let (poly, asserted_sum) =
@@ -101,6 +146,142 @@ fn test_protocol(nv: usize, num_multiplicands_range: (usize, usize), num_product
     );
 }
 
+fn merge_list_of_distributed_poly<F: Field>(
+    prover_states: Vec<ProverState<F>>,
+    poly_info: PolynomialInfo,
+    nv: usize,
+    log_num_parties: usize,
+) -> ListOfProductsOfPolynomials<F> {
+    let mut merge_poly = ListOfProductsOfPolynomials::new(log_num_parties);
+    merge_poly.max_multiplicands = poly_info.max_multiplicands;
+    for j in 0..prover_states[0].list_of_products.len() {
+        let mut evals: Vec<Vec<F>> = vec![Vec::new(); prover_states[0].list_of_products[j].1.len()];
+        for i in 0..prover_states.len() {
+            let (coeff, prods) = &prover_states[i].list_of_products[j];
+            for k in 0..prods.len() {
+                // println!(
+                //     "{:?}",
+                //     prover_states[i].flattened_ml_extensions[prods[k]]
+                //         .evaluations
+                //         .len()
+                // );
+                assert!(
+                    prover_states[i].flattened_ml_extensions[prods[k]]
+                        .evaluations
+                        .len()
+                        == 1
+                );
+                evals[k].push(prover_states[i].flattened_ml_extensions[prods[k]].evaluations[0]);
+            }
+        }
+        let mut prod: Vec<Rc<DenseMultilinearExtension<F>>> = Vec::new();
+        for e in &evals {
+            prod.push(Rc::new(DenseMultilinearExtension::from_evaluations_vec(
+                log_num_parties,
+                e.clone(),
+            )))
+        }
+
+        merge_poly.add_product(prod.into_iter(), prover_states[0].list_of_products[j].0);
+    }
+
+    merge_poly
+}
+
+fn get_result<F: Field>(
+    distributed_poly: Vec<ListOfProductsOfPolynomials<F>>,
+    point: Vec<F>,
+    nv: usize,
+    log_num_parties: usize,
+) -> F {
+    let mut result = F::zero();
+    let partial_point = &point[0..nv - log_num_parties];
+    let res_point = &point[nv - log_num_parties..nv];
+
+    for j in 0..distributed_poly[0].products.len() {
+        let (coeff, prods) = &distributed_poly[0].products[j];
+        let mut prod = F::one();
+        for k in 0..prods.len() {
+            let mut evals: Vec<F> = Vec::new();
+            for i in 0..1 << log_num_parties {
+                evals.push(
+                    distributed_poly[i].flattened_ml_extensions[prods[k]]
+                        .evaluate(partial_point)
+                        .unwrap(),
+                );
+            }
+            let poly = DenseMultilinearExtension::from_evaluations_vec(log_num_parties, evals);
+            prod = prod * poly.evaluate(res_point).unwrap();
+        }
+        result = result + *coeff * prod;
+    }
+    result
+}
+
+fn test_distributed_protocol(
+    nv: usize,
+    num_multiplicands_range: (usize, usize),
+    num_products: usize,
+    log_num_parties: usize,
+) {
+    let mut rng = test_rng();
+    let (distributed_poly, asserted_sum, poly_info) = random_list_of_distributed_products::<Fr, _>(
+        nv,
+        num_multiplicands_range,
+        num_products,
+        log_num_parties,
+        &mut rng,
+    );
+    let mut prover_states = Vec::new();
+    for i in 0..1 << log_num_parties {
+        prover_states.push(IPForMLSumcheck::prover_init(&distributed_poly[i]))
+    }
+    let mut verifier_state = IPForMLSumcheck::verifier_init(&poly_info);
+    let mut verifier_msg = None;
+
+    for _ in 0..nv - log_num_parties {
+        let mut prover_message = IPForMLSumcheck::prove_round(&mut prover_states[0], &verifier_msg);
+        for i in 1..1 << log_num_parties {
+            let tmp = IPForMLSumcheck::prove_round(&mut prover_states[i], &verifier_msg);
+            for j in 0..prover_message.evaluations.len() {
+                prover_message.evaluations[j] = prover_message.evaluations[j] + tmp.evaluations[j]
+            }
+        }
+        let verifier_msg2 =
+            IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut rng);
+        verifier_msg = verifier_msg2;
+        // println!("{:?}", verifier_msg);
+    }
+
+    if log_num_parties != 0 {
+        for i in 0..1 << log_num_parties {
+            let _ = IPForMLSumcheck::prove_round(&mut prover_states[i], &verifier_msg);
+        }
+        // println!("start");
+        let merge_poly =
+            merge_list_of_distributed_poly(prover_states, poly_info, nv, log_num_parties);
+
+        // println!("pass");
+        let mut prover_state = IPForMLSumcheck::prover_init(&merge_poly);
+        // assert!(prover_states[0].round == nv - log_num_parties);
+        // prover_state.round = nv - log_num_parties;
+        let mut verifier_msg = None;
+        for i in nv - log_num_parties..nv {
+            println!("{:?}", i);
+            let prover_message = IPForMLSumcheck::prove_round(&mut prover_state, &verifier_msg);
+            let verifier_msg2 =
+                IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut rng);
+            verifier_msg = verifier_msg2;
+        }
+    }
+
+    let subclaim = IPForMLSumcheck::check_and_generate_subclaim(verifier_state, asserted_sum)
+        .expect("fail to generate subclaim");
+
+    let res = get_result(distributed_poly, subclaim.point, nv, log_num_parties);
+    assert!(res == subclaim.expected_evaluation, "wrong subclaim");
+}
+
 fn test_polynomial_as_subprotocol(
     nv: usize,
     num_multiplicands_range: (usize, usize),
@@ -128,10 +309,12 @@ fn test_trivial_polynomial() {
     let nv = 1;
     let num_multiplicands_range = (4, 13);
     let num_products = 5;
+    let log_num_parties = 0;
 
     for _ in 0..10 {
         test_polynomial(nv, num_multiplicands_range, num_products);
         test_protocol(nv, num_multiplicands_range, num_products);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, log_num_parties);
 
         let mut prover_rng = Blake2s512Rng::setup();
         prover_rng.feed(b"Test Trivial Works").unwrap();
@@ -151,10 +334,15 @@ fn test_normal_polynomial() {
     let nv = 12;
     let num_multiplicands_range = (4, 9);
     let num_products = 5;
+    let log_num_parties = 1;
 
     for _ in 0..10 {
         test_polynomial(nv, num_multiplicands_range, num_products);
         test_protocol(nv, num_multiplicands_range, num_products);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 0);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 1);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 2);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 3);
 
         let mut prover_rng = Blake2s512Rng::setup();
         prover_rng.feed(b"Test Trivial Works").unwrap();
@@ -205,6 +393,7 @@ fn zero_polynomial_protocol_should_error() {
     let num_products = 5;
 
     test_protocol(nv, num_multiplicands_range, num_products);
+    test_distributed_protocol(nv, num_multiplicands_range, num_products, 0);
 }
 
 #[test]
@@ -343,10 +532,15 @@ fn test_zk_sumcheck() {
     let nv = 12;
     let num_multiplicands_range = (4, 9);
     let num_products = 5;
+    let log_num_parties = 1;
 
     for _ in 0..10 {
         test_polynomial(nv, num_multiplicands_range, num_products);
         test_protocol(nv, num_multiplicands_range, num_products);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 0);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 1);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 2);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 3);
 
         let mut prover_rng = Blake2s512Rng::setup();
         prover_rng.feed(b"Test Trivial Works").unwrap();
@@ -368,10 +562,15 @@ fn test_zk_sumcheck_fail() {
     let nv = 12;
     let num_multiplicands_range = (4, 9);
     let num_products = 5;
+    let log_num_parties = 1;
 
     for _ in 0..10 {
         test_polynomial(nv, num_multiplicands_range, num_products);
         test_protocol(nv, num_multiplicands_range, num_products);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 0);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 1);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 2);
+        test_distributed_protocol(nv, num_multiplicands_range, num_products, 3);
 
         let mut prover_rng = Blake2s512Rng::setup();
         prover_rng.feed(b"Test Trivial Works").unwrap();
