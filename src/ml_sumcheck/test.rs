@@ -243,16 +243,19 @@ fn test_distributed_protocol(
         let mut prover_message = IPForMLSumcheck::prove_round(&mut prover_states[0], &verifier_msg);
         for i in 1..1 << log_num_parties {
             let tmp = IPForMLSumcheck::prove_round(&mut prover_states[i], &verifier_msg);
+            // Aggregate results from different parties
             for j in 0..prover_message.evaluations.len() {
                 prover_message.evaluations[j] = prover_message.evaluations[j] + tmp.evaluations[j]
             }
         }
+        // Using the aggregate results to generate the verifier's message.
         let verifier_msg2 =
             IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut rng);
         verifier_msg = verifier_msg2;
         // println!("{:?}", verifier_msg);
     }
 
+    // Let one party to do the last few rounds.
     if log_num_parties != 0 {
         for i in 0..1 << log_num_parties {
             let _ = IPForMLSumcheck::prove_round(&mut prover_states[i], &verifier_msg);
@@ -266,8 +269,7 @@ fn test_distributed_protocol(
         // assert!(prover_states[0].round == nv - log_num_parties);
         // prover_state.round = nv - log_num_parties;
         let mut verifier_msg = None;
-        for i in nv - log_num_parties..nv {
-            println!("{:?}", i);
+        for _ in nv - log_num_parties..nv {
             let prover_message = IPForMLSumcheck::prove_round(&mut prover_state, &verifier_msg);
             let verifier_msg2 =
                 IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut rng);
