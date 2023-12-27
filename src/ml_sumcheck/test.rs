@@ -232,13 +232,17 @@ fn test_distributed_protocol(
         log_num_parties,
         &mut rng,
     );
+
+    let mut prover_rng = Blake2s512Rng::setup();
+    let _ = prover_rng.feed(&poly_info.clone());
     let mut prover_states = Vec::new();
     for i in 0..1 << log_num_parties {
         prover_states.push(IPForMLSumcheck::prover_init(&distributed_poly[i]))
     }
-    let mut verifier_state = IPForMLSumcheck::verifier_init(&poly_info);
+    let mut verifier_state = IPForMLSumcheck::verifier_init(&poly_info.clone());
     let mut verifier_msg = None;
 
+    let mut prover_msgs = Vec::new();
     for _ in 0..nv - log_num_parties {
         let mut prover_message = IPForMLSumcheck::prove_round(&mut prover_states[0], &verifier_msg);
         for i in 1..1 << log_num_parties {
@@ -248,9 +252,11 @@ fn test_distributed_protocol(
                 prover_message.evaluations[j] = prover_message.evaluations[j] + tmp.evaluations[j]
             }
         }
+        let _ = prover_rng.feed(&prover_message);
+        prover_msgs.push(prover_message.clone());
         // Using the aggregate results to generate the verifier's message.
         let verifier_msg2 =
-            IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut rng);
+            IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut prover_rng);
         verifier_msg = verifier_msg2;
         // println!("{:?}", verifier_msg);
     }
@@ -262,7 +268,7 @@ fn test_distributed_protocol(
         }
         // println!("start");
         let merge_poly =
-            merge_list_of_distributed_poly(prover_states, poly_info, nv, log_num_parties);
+            merge_list_of_distributed_poly(prover_states, poly_info.clone(), nv, log_num_parties);
 
         // println!("pass");
         let mut prover_state = IPForMLSumcheck::prover_init(&merge_poly);
@@ -271,17 +277,27 @@ fn test_distributed_protocol(
         let mut verifier_msg = None;
         for _ in nv - log_num_parties..nv {
             let prover_message = IPForMLSumcheck::prove_round(&mut prover_state, &verifier_msg);
+            let _ = prover_rng.feed(&prover_message);
+            prover_msgs.push(prover_message.clone());
             let verifier_msg2 =
-                IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut rng);
+                IPForMLSumcheck::verify_round(prover_message, &mut verifier_state, &mut prover_rng);
             verifier_msg = verifier_msg2;
         }
     }
 
     let subclaim = IPForMLSumcheck::check_and_generate_subclaim(verifier_state, asserted_sum)
         .expect("fail to generate subclaim");
-
     let res = get_result(distributed_poly, subclaim.point, nv, log_num_parties);
     assert!(res == subclaim.expected_evaluation, "wrong subclaim");
+
+    let mut verifier_rng = Blake2s512Rng::setup();
+    let subclaim = MLSumcheck::verify_as_subprotocol(
+        &mut verifier_rng,
+        &poly_info.clone(),
+        asserted_sum,
+        &prover_msgs,
+    );
+    assert!(!subclaim.is_err());
 }
 
 fn test_polynomial_as_subprotocol(
