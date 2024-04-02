@@ -117,8 +117,9 @@ impl<F: Field> MLSumcheck<F> {
         for i in 0..polynomial_info.num_variables {
             let prover_msg = proof.get(i).expect("proof is incomplete");
             fs_rng.feed(prover_msg)?;
-            let _verifier_msg =
+            let verifier_msg =
                 IPForMLSumcheck::verify_round((*prover_msg).clone(), &mut verifier_state, fs_rng);
+            println!("\nverifier_msg: {:?}\n", verifier_msg);
         }
 
         IPForMLSumcheck::check_and_generate_subclaim(verifier_state, claimed_sum)
