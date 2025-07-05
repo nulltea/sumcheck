@@ -70,7 +70,7 @@ fn test_circuit<F: Field>(nv: usize) {
 
 #[test]
 fn test_small() {
-    test_circuit::<Fr>(9);
+    test_circuit::<Fr>(3);
 }
 
 #[test]

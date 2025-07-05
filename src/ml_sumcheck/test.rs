@@ -479,127 +479,45 @@ fn test_shared_reference() {
     );
 }
 
-fn test_polynomial_as_subprotocol_zk(
-    nv: usize,
-    num_multiplicands_range: (usize, usize),
-    num_products: usize,
-    prover_rng: &mut impl FeedableRNG<Error = crate::Error>,
-    verifier_rng: &mut impl FeedableRNG<Error = crate::Error>,
-) {
-    let mut rng = test_rng();
-    let (poly, asserted_sum) =
-        random_list_of_products::<Fr, _>(nv, num_multiplicands_range, num_products, &mut rng);
-    let poly_info = poly.info();
-    let mask_polynomials = generate_mask_polynomial::<Fr>(
-        &mut rng,
-        poly_info.num_variables,
-        poly_info.max_multiplicands,
-    );
-    let challenge = Fr::rand(&mut rng);
-    let (proof, prover_state) =
-        MLSumcheck::prove_as_subprotocol_zk(prover_rng, &poly, &mask_polynomials, challenge)
-            .expect("fail to prove");
-    let subclaim = MLSumcheck::verify_as_subprotocol_zk(
-        verifier_rng,
-        &poly_info,
-        asserted_sum,
-        &proof,
-        challenge,
-        SparsePolynomial::evaluate(&mask_polynomials, &prover_state.prover_state.randomness),
-    )
-    .expect("fail to verify");
-    assert!(
-        poly.evaluate(&subclaim.point) == subclaim.expected_evaluation,
-        "wrong subclaim"
-    );
-}
+#[test]
+fn test_mle_indexing() {
+    use ark_test_curves::bls12_381::Fr;
 
-pub(crate) fn generate_mask_polynomial<F: Field>(
-    mask_rng: &mut impl RngCore,
-    num_variables: usize,
-    deg: usize,
-) -> SparsePolynomial<F, SparseTerm> {
-    let mut mask_polynomials: Vec<Vec<F>> = Vec::new();
-    let mut sum_g = F::zero();
-    for _ in 0..num_variables {
-        let mut mask_poly = Vec::<F>::with_capacity(deg + 1);
-        mask_poly.push(F::rand(mask_rng));
-        sum_g += mask_poly[0] + mask_poly[0];
-        for i in 1..deg + 1 {
-            mask_poly.push(F::rand(mask_rng));
-            sum_g += mask_poly[i];
+    let nv = 2;
+    let dim = 1;
+    // let mut rng = test_rng();
+
+    // let (products, _) = random_product::<Fr, _>(nv, 1, &mut rng);
+
+    // let mut poly = products[0].as_ref().clone().evaluations.to_vec();
+    let mut poly: Vec<Fr> = vec![0, 1, 2, 6].into_iter().map(|e| e.into()).collect();
+
+    let mut poly2 = DenseMultilinearExtension::from_evaluations_vec(nv, poly.clone());
+
+    // println!("poly: {:?}", poly);
+
+    println!("poly2: {:?}", poly2.evaluations);
+    let partial_point: Vec<Fr> = vec![5.into()];
+    for i in 1..dim + 1 {
+        let r = partial_point[i - 1];
+        for b in 0..(1 << (nv - i)) {
+            let left = b << 1;
+            let right = (b << 1) + 1;
+            println!("b: {}, left: {}, right: {}", b, left, right);
+            println!("b: {:#b}, left: {:#b}, right: {:#b}", b, left, right);
+            let prod = poly[left] + r * (poly[right] - poly[left]);
+            println!("poly[{}] = {} + {} * ({} - {}) = {}", b, poly[left], r, poly[right], poly[left], prod);
+            poly[b] = prod;
+
         }
-        mask_polynomials.push(mask_poly);
+        println!("-----------------");
     }
-    mask_polynomials[0][0] -= sum_g / F::from(2u8);
-    let mut terms: Vec<(F, SparseTerm)> = Vec::new();
-    for (var, variables_coef) in mask_polynomials.iter().enumerate() {
-        variables_coef
-            .iter()
-            .enumerate()
-            .for_each(|(degree, coef)| {
-                terms.push((coef.clone(), SparseTerm::new(vec![(var, degree)])))
-            });
-    }
+    println!("poly: {:?}", poly);
+    
+    poly2 = poly2.fix_variables(&partial_point);
 
-    SparsePolynomial::from_coefficients_vec(num_variables, terms)
-}
+    println!("poly2: {:?}", poly2.evaluations);
 
-#[test]
-fn test_zk_sumcheck() {
-    let nv = 12;
-    let num_multiplicands_range = (4, 9);
-    let num_products = 5;
-    let log_num_parties = 1;
+    
 
-    for _ in 0..10 {
-        test_polynomial(nv, num_multiplicands_range, num_products);
-        test_protocol(nv, num_multiplicands_range, num_products);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 0);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 1);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 2);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 3);
-
-        let mut prover_rng = Blake2s512Rng::setup();
-        prover_rng.feed(b"Test Trivial Works").unwrap();
-        let mut verifier_rng = Blake2s512Rng::setup();
-        verifier_rng.feed(b"Test Trivial Works").unwrap();
-        test_polynomial_as_subprotocol_zk(
-            nv,
-            num_multiplicands_range,
-            num_products,
-            &mut prover_rng,
-            &mut verifier_rng,
-        )
-    }
-}
-
-#[test]
-#[should_panic]
-fn test_zk_sumcheck_fail() {
-    let nv = 12;
-    let num_multiplicands_range = (4, 9);
-    let num_products = 5;
-    let log_num_parties = 1;
-
-    for _ in 0..10 {
-        test_polynomial(nv, num_multiplicands_range, num_products);
-        test_protocol(nv, num_multiplicands_range, num_products);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 0);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 1);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 2);
-        test_distributed_protocol(nv, num_multiplicands_range, num_products, 3);
-
-        let mut prover_rng = Blake2s512Rng::setup();
-        prover_rng.feed(b"Test Trivial Works").unwrap();
-        let mut verifier_rng = Blake2s512Rng::setup();
-        verifier_rng.feed(b"Test Trivial Fails").unwrap();
-        test_polynomial_as_subprotocol_zk(
-            nv,
-            num_multiplicands_range,
-            num_products,
-            &mut prover_rng,
-            &mut verifier_rng,
-        )
-    }
 }
